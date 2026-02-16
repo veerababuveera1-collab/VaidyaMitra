@@ -1,86 +1,116 @@
 import streamlit as st
 from openai import OpenAI
-import os
 
-# --- UI Config ---
-st.set_page_config(page_title="VaidyaMitra AI", page_icon="🩺", layout="centered")
+# --- 1. PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="VaidyaMitra AI - Grok Edition",
+    page_icon="🩺",
+    layout="centered"
+)
 
-# Custom CSS for a medical look
+# --- 2. CUSTOM STYLING ---
 st.markdown("""
     <style>
-    .stApp { background-color: #f4f7f6; }
-    .report-card { background-color: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 6px solid #2ecc71; }
-    .stButton>button { background-color: #2ecc71; color: white; font-weight: bold; border-radius: 10px; }
+    .main { background-color: #f0f2f6; }
+    .stTextArea textarea { border-radius: 10px; border: 1px solid #2ecc71; }
+    .stButton>button { 
+        width: 100%; 
+        border-radius: 10px; 
+        background-color: #2ecc71; 
+        color: white; 
+        font-weight: bold;
+        height: 3em;
+    }
+    .result-box { 
+        background-color: white; 
+        padding: 20px; 
+        border-radius: 15px; 
+        border-left: 6px solid #2ecc71;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- Grok Client Setup ---
+# --- 3. GROK CLIENT SETUP ---
 def get_grok_client():
-    # Priority: Streamlit Secrets or Session State
+    # Priority 1: Streamlit Secrets (for production)
+    # Priority 2: Session State (for manual testing)
     api_key = st.secrets.get("XAI_API_KEY") or st.session_state.get("grok_api_key")
+    
     if not api_key:
         return None
-    
+        
     return OpenAI(
         api_key=api_key,
-        base_url="https://api.x.ai/v1"  # Grok API endpoint
+        base_url="https://api.x.ai/v1"
     )
 
-# --- Sidebar Configuration ---
+# --- 4. SIDEBAR SETTINGS ---
 with st.sidebar:
-    st.title("🏥 Configuration")
-    if "XAI_API_KEY" not in st.secrets:
-        user_key = st.text_input("Enter Grok API Key (xai-...):", type="password")
-        if user_key:
-            st.session_state["grok_api_key"] = user_key
-            st.success("API Key saved! ✅")
-    else:
-        st.success("API Key loaded from Secrets! ✅")
+    st.title("🛡️ Secure Access")
+    st.write("VaidyaMitra AI ని ఉపయోగించడానికి Grok API కీ అవసరం.")
     
-    st.divider()
-    st.markdown("### About VaidyaMitra\nThis AI uses Grok-2 to analyze symptoms and provide preliminary health insights.")
+    # Check if key is in secrets
+    if "XAI_API_KEY" in st.secrets:
+        st.success("API Key loaded from Secrets! ✅")
+        api_ready = True
+    else:
+        manual_key = st.text_input("Enter Grok API Key (xai-...):", type="password")
+        if manual_key:
+            st.session_state["grok_api_key"] = manual_key
+            st.success("Key accepted! ✅")
+            api_ready = True
+        else:
+            st.warning("Please enter your key to proceed.")
+            api_ready = False
 
-# --- Main App Logic ---
+    st.divider()
+    st.info("గమనిక: మీ డేటా మరియు కీ భద్రంగా ఉంటాయి. మేము ఎక్కడా స్టోర్ చేయము.")
+
+# --- 5. MAIN INTERFACE ---
 st.title("🩺 VaidyaMitra AI")
-st.subheader("Smart Medical Symptom Analyzer")
+st.markdown("#### మీ ఆరోగ్య సహకారి (Your AI Health Assistant)")
+
+st.write("కింద ఉన్న బాక్స్‌లో మీ లక్షణాలను (Symptoms) వివరించండి. Grok AI వాటిని విశ్లేషిస్తుంది.")
 
 user_input = st.text_area(
-    "మీ లక్షణాలను ఇక్కడ నమోదు చేయండి (Describe your symptoms):",
-    placeholder="ఉదా: నాకు మూడు రోజులుగా జ్వరం మరియు ఒళ్ళు నొప్పులు ఉన్నాయి...",
+    "Describe symptoms:", 
+    placeholder="ఉదా: నాకు రెండు రోజులుగా తలనొప్పి మరియు జ్వరం ఉంది...",
     height=150
 )
 
-if st.button("Analyze Symptoms"):
-    client = get_grok_client()
-    
-    if not client:
-        st.error("Missing API Key! Please add it in the sidebar.")
+# --- 6. ANALYSIS LOGIC ---
+if st.button("విశ్లేషించు (Analyze Now)"):
+    if not api_ready:
+        st.error("సైడ్‌బార్‌లో API Key నమోదు చేయండి!")
     elif not user_input:
-        st.warning("Please describe your symptoms before analyzing.")
+        st.warning("ముందుగా మీ లక్షణాలను వివరించండి.")
     else:
-        with st.spinner("Grok AI is analyzing your symptoms..."):
-            try:
-                # Optimized Medical Prompt
-                response = client.chat.completions.create(
-                    model="grok-2-latest",  # You can also use "grok-beta"
-                    messages=[
-                        {"role": "system", "content": "You are a highly qualified medical diagnostic assistant. Provide 3 possible conditions, an urgency rating (Low, Medium, Critical), and clear next steps. Always include a disclaimer that this is not a final medical diagnosis."},
-                        {"role": "user", "content": f"Symptoms description: {user_input}"}
-                    ],
-                    temperature=0.3
-                )
-                
-                analysis = response.choices[0].message.content
-                
-                # Display Results
-                st.markdown("### 📋 Analysis Report")
-                st.markdown(f"<div class='report-card'>{analysis}</div>", unsafe_allow_html=True)
-                
-                st.info("⚠️ **Disclaimer:** This analysis is AI-generated for informational purposes only. In case of emergency, please visit a hospital immediately.")
-                
-            except Exception as e:
-                st.error(f"Error during analysis: {str(e)}")
+        client = get_grok_client()
+        if client:
+            with st.spinner("Grok AI విశ్లేషిస్తోంది..."):
+                try:
+                    # Professional Prompting
+                    response = client.chat.completions.create(
+                        model="grok-2-latest", 
+                        messages=[
+                            {"role": "system", "content": "You are a professional medical assistant named VaidyaMitra. Use Telugu and English for the response. Provide 3 possible causes, urgency level, and immediate steps. Always add a disclaimer: 'This is not a medical diagnosis.'"},
+                            {"role": "user", "content": user_input}
+                        ],
+                        temperature=0.3
+                    )
+                    
+                    # Displaying Output
+                    result = response.choices[0].message.content
+                    st.subheader("📋 విశ్లేషణ నివేదిక (Analysis Report)")
+                    st.markdown(f"<div class='result-box'>{result}</div>", unsafe_allow_html=True)
+                    
+                    st.warning("⚠️ **Disclaimer:** ఇది కేవలం సమాచారం కోసం మాత్రమే. అత్యవసర స్థితిలో వెంటనే వైద్యుడిని సంప్రదించండి.")
+                    
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                    st.info("ఒకవేళ 'Model Not Found' అని వస్తే, కోడ్‌లో 'grok-2-latest' ని 'grok-beta' గా మార్చండి.")
 
-# --- Footer ---
+# --- 7. FOOTER ---
 st.divider()
-st.caption("Powered by Grok (xAI) | Developed for VaidyaMitra")
+st.caption("Powered by xAI Grok | Developed for VaidyaMitra")
