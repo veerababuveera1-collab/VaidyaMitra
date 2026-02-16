@@ -1,5 +1,5 @@
 streamlit
 crewai==0.28.8
-langchain-google-genai
-langgraph
+langchain-google-genai==1.0.3
+langgraph==0.0.39
 pydantic==2.6.4
