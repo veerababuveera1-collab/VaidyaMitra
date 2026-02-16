@@ -1,6 +1,6 @@
 streamlit
 crewai
 langgraph
-langchain-openai
-pydantic
+langchain-google-genai
+pydantic>=2.0
 typing-extensions
