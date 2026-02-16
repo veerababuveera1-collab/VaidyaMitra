@@ -3,17 +3,18 @@ import os
 from crewai import Agent, Task, Crew
 from langgraph.graph import StateGraph, END
 from typing import TypedDict
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-# --- UI Styling ---
+# --- UI Config & Styling ---
 st.set_page_config(page_title="MediNode AI Pro", page_icon="🩺", layout="wide")
 
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    .stTextArea textarea { border-radius: 10px; border: 1px solid #007bff; }
-    .stButton>button { background-color: #007bff; color: white; border-radius: 8px; font-weight: bold; width: 100%; }
-    .report-box { background-color: #ffffff; padding: 25px; border-radius: 12px; box-shadow: 0px 4px 12px rgba(0,0,0,0.1); border-left: 6px solid #007bff; line-height: 1.6; color: #333; }
-    .status-text { font-weight: 500; color: #555; }
+    .main { background-color: #f4f7f6; }
+    .stButton>button { background-color: #2c3e50; color: white; border-radius: 8px; height: 3em; width: 100%; }
+    .report-box { background-color: white; padding: 25px; border-radius: 15px; border-left: 8px solid #3498db; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: #2c3e50; }
+    .urgency-critical { background-color: #ffebee; border: 1px solid #ff1744; padding: 15px; border-radius: 10px; color: #b71c1c; font-weight: bold; }
+    .urgency-normal { background-color: #e8f5e9; border: 1px solid #00c853; padding: 15px; border-radius: 10px; color: #1b5e20; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -23,38 +24,48 @@ class AgentState(TypedDict):
     analysis: str
     urgency: str
 
-# --- Agentic Logic (CrewAI) ---
-def run_medical_crew(symptoms):
-    # Researcher Agent
+# --- API Setup (Gemini) ---
+def setup_llm():
+    # Streamlit Secrets లేదా Sidebar నుండి కీని తీసుకుంటుంది
+    api_key = st.secrets.get("GOOGLE_API_KEY") or st.session_state.get("google_api_key")
+    if not api_key:
+        return None
+    return ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash",
+        google_api_key=api_key,
+        temperature=0.3
+    )
+
+# --- Agentic Logic ---
+def run_medical_crew(symptoms, llm):
     researcher = Agent(
         role='Medical Researcher',
-        goal=f'Analyze symptoms: {symptoms} and find potential causes.',
-        backstory='Expert in clinical diagnostic patterns and medical literature.',
+        goal=f'Analyze symptoms: {symptoms}. Identify potential conditions.',
+        backstory='Expert in clinical diagnostic patterns with access to medical knowledge.',
+        llm=llm,
         allow_delegation=False,
         verbose=True
     )
     
-    # Triage Specialist Agent
     analyst = Agent(
         role='Triage Specialist',
-        goal='Assess severity and provide medical urgency classification.',
-        backstory='Senior ER specialist focused on patient prioritization and safety.',
+        goal='Categorize the urgency of the symptoms.',
+        backstory='Experienced emergency room nurse specializing in triage and patient prioritization.',
+        llm=llm,
         allow_delegation=False,
         verbose=True
     )
 
-    # Task 1: Research (Expected Output is mandatory for Pydantic V2)
     task1 = Task(
-        description=f"Thoroughly analyze these symptoms: {symptoms}. List 3 most likely conditions.",
+        description=f"Analyze these symptoms: {symptoms}. Suggest top 3 likely causes.",
         agent=researcher,
-        expected_output="A structured summary of 3 potential conditions with brief reasoning for each."
+        expected_output="A bulleted list of 3 potential medical conditions with brief reasons."
     )
     
-    # Task 2: Triage
     task2 = Task(
-        description="Review the research and classify the situation as CRITICAL, MEDIUM, or LOW urgency.",
+        description="Review findings and classify urgency as CRITICAL, MEDIUM, or LOW.",
         agent=analyst,
-        expected_output="A final triage report including Urgency Level, brief explanation, and recommended next steps."
+        expected_output="A final report with an Urgency Level and recommended next steps."
     )
 
     crew = Crew(agents=[researcher, analyst], tasks=[task1, task2])
@@ -62,99 +73,64 @@ def run_medical_crew(symptoms):
 
 # --- LangGraph Node ---
 def medical_node(state: AgentState):
-    result = run_medical_crew(state['symptoms'])
+    llm = setup_llm()
+    result = run_medical_crew(state['symptoms'], llm)
     res_str = str(result)
     
-    # Urgency detection logic
-    urg_check = res_str.upper()
-    if any(word in urg_check for word in ["CRITICAL", "EMERGENCY", "IMMEDIATE", "SEVERE"]):
-        urgency = "Critical"
-    else:
-        urgency = "Normal"
-        
+    # Urgency Logic
+    urgency = "Critical" if any(w in res_str.upper() for w in ["CRITICAL", "EMERGENCY", "IMMEDIATE"]) else "Normal"
     return {"analysis": res_str, "urgency": urgency}
 
-# --- Workflow Graph Setup ---
+# --- Graph Construction ---
 workflow = StateGraph(AgentState)
 workflow.add_node("analyze", medical_node)
 workflow.set_entry_point("analyze")
 workflow.add_edge("analyze", END)
 app_graph = workflow.compile()
 
-# --- Sidebar: API Configuration ---
+# --- Sidebar ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/387/387561.png", width=80)
-    st.header("⚙️ Configuration")
+    st.title("⚙️ Settings")
+    st.info("OpenAI Quota సమస్యను నివారించడానికి మేము Gemini AI ని వాడుతున్నాము.")
     
-    # API Key Logic: Secrets vs Manual Input
-    api_key_found = False
-    
-    if "OPENAI_API_KEY" in st.secrets:
-        os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-        st.success("API Key loaded from Secrets! ✅")
-        api_key_found = True
+    if "GOOGLE_API_KEY" not in st.secrets:
+        g_key = st.text_input("Enter Google API Key:", type="password")
+        if g_key:
+            st.session_state["google_api_key"] = g_key
     else:
-        user_key = st.text_input("Enter OpenAI API Key", type="password", help="sk-...")
-        if user_key:
-            os.environ["OPENAI_API_KEY"] = user_key
-            api_key_found = True
-        else:
-            st.warning("⚠️ API Key missing! Please add to Secrets or enter here.")
-    
+        st.success("API Key loaded from Secrets! ✅")
+
     st.divider()
-    st.markdown("""
-    **Technical Stack:**
-    - CrewAI (Multi-Agents)
-    - LangGraph (Workflow)
-    - OpenAI GPT Models
-    """)
+    st.write("Tech: CrewAI, LangGraph, Gemini 1.5 Flash")
 
-# --- Main Page UI ---
-st.title("🩺 MediNode AI: Agentic Medical Triage")
-st.write("మా AI ఏజెంట్ల బృందం మీ లక్షణాలను విశ్లేషించి, పరిస్థితి యొక్క తీవ్రతను తెలియజేస్తుంది.")
+# --- Main UI ---
+st.title("🩺 VaidyaMitra AI: Agentic Medical Triage")
+st.write("మీ ఆరోగ్య సమస్యలను వివరించండి, మా AI ఏజెంట్లు విశ్లేషిస్తాయి.")
 
-# Layout Columns
-col1, col2 = st.columns([1, 1], gap="large")
+user_input = st.text_area("Symptoms:", placeholder="ఉదా: మూడు రోజులుగా తలనొప్పి మరియు జ్వరం...", height=150)
 
-with col1:
-    st.subheader("Patient Symptoms")
-    user_input = st.text_area(
-        "మీ ఆరోగ్య సమస్యలను ఇక్కడ వివరించండి:", 
-        placeholder="ఉదా: విపరీతమైన ఛాతి నొప్పి మరియు శ్వాస తీసుకోవడంలో ఇబ్బంది...", 
-        height=150
-    )
-    
-    run_btn = st.button("Start AI Diagnostic Analysis")
-
-with col2:
-    st.subheader("Analysis Results")
-    
-    if run_btn:
-        if not api_key_found:
-            st.error("API Key దొరకలేదు. దయచేసి సెట్టింగ్స్ తనిఖీ చేయండి.")
-        elif not user_input:
-            st.warning("ముందుగా మీ లక్షణాలను టైప్ చేయండి.")
-        else:
-            with st.status("AI Agents are collaborating...", expanded=True) as status:
-                st.write("🔍 **Medical Researcher** is scanning clinical patterns...")
+if st.button("Start Analysis"):
+    if not (st.secrets.get("GOOGLE_API_KEY") or st.session_state.get("google_api_key")):
+        st.error("దయచేసి Google API Key ని ఎంటర్ చేయండి!")
+    elif not user_input:
+        st.warning("ముందుగా లక్షణాలను టైప్ చేయండి.")
+    else:
+        with st.status("AI Agents are thinking...", expanded=True) as status:
+            try:
+                final_state = app_graph.invoke({"symptoms": user_input})
+                status.update(label="Analysis Complete!", state="complete")
                 
-                # Execute the Graph
-                try:
-                    final_result = app_graph.invoke({"symptoms": user_input})
-                    status.update(label="Analysis Finished!", state="complete", expanded=False)
-                    
-                    # Report Display
-                    st.markdown(f"<div class='report-box'>{final_result['analysis']}</div>", unsafe_allow_html=True)
-                    
-                    st.write("---")
-                    if final_result['urgency'] == "Critical":
-                        st.error("🚨 **URGENCY: CRITICAL** - వెంటనే వైద్య సహాయం తీసుకోండి (Consult a doctor immediately)!")
-                    else:
-                        st.success("✅ **URGENCY: NORMAL / STABLE** - సాధారణ వైద్య సలహాలు పాటించండి.")
+                st.subheader("📋 Final Report")
+                st.markdown(f"<div class='report-box'>{final_state['analysis']}</div>", unsafe_allow_html=True)
                 
-                except Exception as e:
-                    st.error(f"Error encountered: {e}")
-                    status.update(label="Analysis Failed", state="error")
+                st.write("---")
+                if final_state['urgency'] == "Critical":
+                    st.markdown("<div class='urgency-critical'>🚨 URGENCY: CRITICAL - వెంటనే ఆసుపత్రికి వెళ్ళండి!</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='urgency-normal'>✅ URGENCY: NORMAL - సాధారణ జాగ్రత్తలు తీసుకోండి.</div>", unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Error: {e}")
+                status.update(label="Analysis Failed", state="error")
 
 st.divider()
-st.caption("⚠️ **Disclaimer:** This system is an AI research prototype and is NOT a substitute for professional medical diagnosis or emergency services.")
+st.caption("Disclaimer: ఇది కేవలం AI ప్రోటోటైప్. అత్యవసర పరిస్థితుల్లో డాక్టరును సంప్రదించండి.")
