@@ -8,33 +8,36 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- 2. CUSTOM STYLING ---
+# --- 2. CUSTOM STYLING (Medical Theme) ---
 st.markdown("""
     <style>
-    .main { background-color: #f0f2f6; }
-    .stTextArea textarea { border-radius: 10px; border: 1px solid #2ecc71; }
+    .main { background-color: #f0f4f8; }
+    .stTextArea textarea { border-radius: 12px; border: 2px solid #3498db; }
     .stButton>button { 
         width: 100%; 
-        border-radius: 10px; 
-        background-color: #2ecc71; 
+        border-radius: 12px; 
+        background-color: #27ae60; 
         color: white; 
         font-weight: bold;
-        height: 3em;
+        font-size: 18px;
+        height: 3.5em;
+        transition: 0.3s;
     }
+    .stButton>button:hover { background-color: #2ecc71; border: none; }
     .result-box { 
         background-color: white; 
-        padding: 20px; 
+        padding: 25px; 
         border-radius: 15px; 
-        border-left: 6px solid #2ecc71;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+        border-left: 8px solid #27ae60;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        line-height: 1.6;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 3. GROK CLIENT SETUP ---
 def get_grok_client():
-    # Priority 1: Streamlit Secrets (for production)
-    # Priority 2: Session State (for manual testing)
+    # Streamlit Secrets (XAI_API_KEY) నుండి కీని తీసుకుంటుంది
     api_key = st.secrets.get("XAI_API_KEY") or st.session_state.get("grok_api_key")
     
     if not api_key:
@@ -45,56 +48,55 @@ def get_grok_client():
         base_url="https://api.x.ai/v1"
     )
 
-# --- 4. SIDEBAR SETTINGS ---
+# --- 4. SIDEBAR & KEY CHECK ---
 with st.sidebar:
-    st.title("🛡️ Secure Access")
-    st.write("VaidyaMitra AI ని ఉపయోగించడానికి Grok API కీ అవసరం.")
+    st.title("🛡️ Connection Status")
     
-    # Check if key is in secrets
+    # Secrets లో కీ ఉందో లేదో తనిఖీ చేస్తుంది
     if "XAI_API_KEY" in st.secrets:
-        st.success("API Key loaded from Secrets! ✅")
+        st.success("API Key loaded from Settings! ✅")
+        api_ready = True
+    elif "grok_api_key" in st.session_state:
+        st.success("Manual Key Loaded! ✅")
         api_ready = True
     else:
         manual_key = st.text_input("Enter Grok API Key (xai-...):", type="password")
         if manual_key:
             st.session_state["grok_api_key"] = manual_key
-            st.success("Key accepted! ✅")
-            api_ready = True
+            st.rerun()
         else:
-            st.warning("Please enter your key to proceed.")
+            st.warning("Please add API Key in Settings or here.")
             api_ready = False
 
     st.divider()
-    st.info("గమనిక: మీ డేటా మరియు కీ భద్రంగా ఉంటాయి. మేము ఎక్కడా స్టోర్ చేయము.")
+    st.info("VaidyaMitra AI మీ ఆరోగ్య లక్షణాలను విశ్లేషించి ప్రాథమిక అవగాహన కల్పిస్తుంది.")
 
 # --- 5. MAIN INTERFACE ---
 st.title("🩺 VaidyaMitra AI")
-st.markdown("#### మీ ఆరోగ్య సహకారి (Your AI Health Assistant)")
-
-st.write("కింద ఉన్న బాక్స్‌లో మీ లక్షణాలను (Symptoms) వివరించండి. Grok AI వాటిని విశ్లేషిస్తుంది.")
+st.markdown("##### మీ లక్షణాలను విశ్లేషించే స్మార్ట్ మెడికల్ అసిస్టెంట్")
 
 user_input = st.text_area(
-    "Describe symptoms:", 
-    placeholder="ఉదా: నాకు రెండు రోజులుగా తలనొప్పి మరియు జ్వరం ఉంది...",
+    "మీ ఆరోగ్య సమస్యలను ఇక్కడ వివరించండి (Describe symptoms):", 
+    placeholder="ఉదా: నాకు రెండు రోజులుగా విపరీతమైన తలనొప్పి మరియు జ్వరం ఉంది...",
     height=150
 )
 
 # --- 6. ANALYSIS LOGIC ---
-if st.button("విశ్లేషించు (Analyze Now)"):
+if st.button("విశ్లేషించు (Analyze Symptoms)"):
     if not api_ready:
-        st.error("సైడ్‌బార్‌లో API Key నమోదు చేయండి!")
+        st.error("ముందుగా API Key ని నమోదు చేయండి!")
     elif not user_input:
-        st.warning("ముందుగా మీ లక్షణాలను వివరించండి.")
+        st.warning("దయచేసి మీ లక్షణాలను బాక్స్‌లో టైప్ చేయండి.")
     else:
         client = get_grok_client()
         if client:
-            with st.spinner("Grok AI విశ్లేషిస్తోంది..."):
+            with st.spinner("Grok AI మీ లక్షణాలను విశ్లేషిస్తోంది, దయచేసి వేచి ఉండండి..."):
                 try:
-                    # Professional Prompting
+                    # 'grok-beta' is used to avoid 'Model Not Found' errors
                     response = client.chat.completions.create(
-                        model="grok-2-latest", 
+                        model="grok-beta", 
                         messages=[
-                            {"role": "system", "content": "You are a professional medical assistant named VaidyaMitra. Use Telugu and English for the response. Provide 3 possible causes, urgency level, and immediate steps. Always add a disclaimer: 'This is not a medical diagnosis.'"},
+                            {"role": "system", "content": "You are VaidyaMitra, a professional medical assistant. Analyze the user's symptoms and provide a response in both Telugu and English. Structure the response with: 1. Potential Causes, 2. Urgency Level, 3. Suggested Next Steps. Always include a clear disclaimer that you are an AI, not a doctor."},
                             {"role": "user", "content": user_input}
                         ],
                         temperature=0.3
@@ -105,12 +107,15 @@ if st.button("విశ్లేషించు (Analyze Now)"):
                     st.subheader("📋 విశ్లేషణ నివేదిక (Analysis Report)")
                     st.markdown(f"<div class='result-box'>{result}</div>", unsafe_allow_html=True)
                     
-                    st.warning("⚠️ **Disclaimer:** ఇది కేవలం సమాచారం కోసం మాత్రమే. అత్యవసర స్థితిలో వెంటనే వైద్యుడిని సంప్రదించండి.")
+                    st.divider()
+                    st.warning("⚠️ **గమనిక:** ఇది కేవలం సమాచారం కోసం మాత్రమే. మీకు అత్యవసరమైతే వెంటనే సమీపంలోని వైద్యుడిని లేదా ఆసుపత్రిని సంప్రదించండి.")
                     
                 except Exception as e:
-                    st.error(f"Error: {e}")
-                    st.info("ఒకవేళ 'Model Not Found' అని వస్తే, కోడ్‌లో 'grok-2-latest' ని 'grok-beta' గా మార్చండి.")
+                    if "400" in str(e):
+                        st.error("API Error: మోడల్ కనుగొనబడలేదు లేదా కీ చెల్లదు. దయచేసి మీ Grok క్రెడిట్స్ మరియు కీని తనిఖీ చేయండి.")
+                    else:
+                        st.error(f"Error: {e}")
 
 # --- 7. FOOTER ---
 st.divider()
-st.caption("Powered by xAI Grok | Developed for VaidyaMitra")
+st.caption("Powered by xAI Grok-Beta | Built for VaidyaMitra")
