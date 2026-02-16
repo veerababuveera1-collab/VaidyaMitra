@@ -1,90 +1,86 @@
 import streamlit as st
-import google.generativeai as genai
+from openai import OpenAI
+import os
 
 # --- UI Config ---
 st.set_page_config(page_title="VaidyaMitra AI", page_icon="🩺", layout="centered")
 
-# Custom Styling
+# Custom CSS for a medical look
 st.markdown("""
     <style>
-    .report-box { background-color: #f9f9f9; padding: 20px; border-radius: 10px; border-left: 5px solid #007bff; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #007bff; color: white; }
+    .stApp { background-color: #f4f7f6; }
+    .report-card { background-color: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 6px solid #2ecc71; }
+    .stButton>button { background-color: #2ecc71; color: white; font-weight: bold; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- API Setup ---
-def setup_gemini(api_key):
-    try:
-        genai.configure(api_key=api_key)
-        # Using the most stable model name
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        return model
-    except Exception as e:
-        st.error(f"API Configuration Error: {e}")
+# --- Grok Client Setup ---
+def get_grok_client():
+    # Priority: Streamlit Secrets or Session State
+    api_key = st.secrets.get("XAI_API_KEY") or st.session_state.get("grok_api_key")
+    if not api_key:
         return None
+    
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://api.x.ai/v1"  # Grok API endpoint
+    )
 
-# --- Sidebar ---
+# --- Sidebar Configuration ---
 with st.sidebar:
-    st.title("⚙️ Settings")
-    st.info("ఈ యాప్ మీ లక్షణాలను విశ్లేషించడానికి Google Gemini AI ని ఉపయోగిస్తుంది.")
-    
-    # Priority: Secrets > Manual Input
-    api_key = st.secrets.get("GOOGLE_API_KEY") or st.session_state.get("manual_api_key")
-    
-    if not api_key:
-        manual_key = st.text_input("Google API Key ఎంటర్ చేయండి:", type="password")
-        if manual_key:
-            st.session_state["manual_api_key"] = manual_key
-            st.rerun()
+    st.title("🏥 Configuration")
+    if "XAI_API_KEY" not in st.secrets:
+        user_key = st.text_input("Enter Grok API Key (xai-...):", type="password")
+        if user_key:
+            st.session_state["grok_api_key"] = user_key
+            st.success("API Key saved! ✅")
     else:
-        st.success("API Key సిద్ధంగా ఉంది! ✅")
-        if st.button("Clear Key"):
-            st.session_state["manual_api_key"] = None
-            st.rerun()
+        st.success("API Key loaded from Secrets! ✅")
+    
+    st.divider()
+    st.markdown("### About VaidyaMitra\nThis AI uses Grok-2 to analyze symptoms and provide preliminary health insights.")
 
-# --- Main UI ---
+# --- Main App Logic ---
 st.title("🩺 VaidyaMitra AI")
-st.write("మీ ఆరోగ్య సమస్యలను కింద వివరించండి (English or తెలుగు).")
+st.subheader("Smart Medical Symptom Analyzer")
 
-user_input = st.text_area("లక్షణాలు (Symptoms):", placeholder="ఉదా: నాకు రెండు రోజులుగా జ్వరం మరియు తలనొప్పి ఉంది...", height=150)
+user_input = st.text_area(
+    "మీ లక్షణాలను ఇక్కడ నమోదు చేయండి (Describe your symptoms):",
+    placeholder="ఉదా: నాకు మూడు రోజులుగా జ్వరం మరియు ఒళ్ళు నొప్పులు ఉన్నాయి...",
+    height=150
+)
 
-if st.button("విశ్లేషించు (Analyze)"):
-    if not api_key:
-        st.warning("దయచేసి సైడ్‌బార్‌లో API Key ని నమోదు చేయండి.")
+if st.button("Analyze Symptoms"):
+    client = get_grok_client()
+    
+    if not client:
+        st.error("Missing API Key! Please add it in the sidebar.")
     elif not user_input:
-        st.warning("ముందుగా మీ లక్షణాలను టైప్ చేయండి.")
+        st.warning("Please describe your symptoms before analyzing.")
     else:
-        model = setup_gemini(api_key)
-        if model:
-            with st.spinner("AI విశ్లేషిస్తోంది, దయచేసి వేచి ఉండండి..."):
-                try:
-                    # Professional Medical Prompt
-                    prompt = f"""
-                    You are a professional medical assistant. Analyze the following symptoms:
-                    "{user_input}"
-                    
-                    Please provide:
-                    1. 3 Potential medical conditions.
-                    2. Urgency Level (LOW, MEDIUM, or CRITICAL).
-                    3. Recommended next steps.
-                    
-                    Important: Mention that this is an AI-generated report and not a substitute for professional medical advice.
-                    """
-                    
-                    response = model.generate_content(prompt)
-                    
-                    st.subheader("📋 విశ్లేషణ నివేదిక (Analysis Report)")
-                    st.markdown(f"<div class='report-box'>{response.text}</div>", unsafe_allow_html=True)
-                    
-                    st.divider()
-                    st.caption("⚠️ గమనిక: ఇది కేవలం సమాచారం కోసం మాత్రమే. అత్యవసర స్థితిలో వెంటనే వైద్యుడిని సంప్రదించండి.")
-                    
-                except Exception as e:
-                    if "404" in str(e):
-                        st.error("Error: మోడల్ 'gemini-1.5-flash' కనుగొనబడలేదు. మీ API Key కి ఈ మోడల్ పర్మిషన్ ఉందో లేదో చెక్ చేయండి.")
-                    else:
-                        st.error(f"Error: {e}")
+        with st.spinner("Grok AI is analyzing your symptoms..."):
+            try:
+                # Optimized Medical Prompt
+                response = client.chat.completions.create(
+                    model="grok-2-latest",  # You can also use "grok-beta"
+                    messages=[
+                        {"role": "system", "content": "You are a highly qualified medical diagnostic assistant. Provide 3 possible conditions, an urgency rating (Low, Medium, Critical), and clear next steps. Always include a disclaimer that this is not a final medical diagnosis."},
+                        {"role": "user", "content": f"Symptoms description: {user_input}"}
+                    ],
+                    temperature=0.3
+                )
+                
+                analysis = response.choices[0].message.content
+                
+                # Display Results
+                st.markdown("### 📋 Analysis Report")
+                st.markdown(f"<div class='report-card'>{analysis}</div>", unsafe_allow_html=True)
+                
+                st.info("⚠️ **Disclaimer:** This analysis is AI-generated for informational purposes only. In case of emergency, please visit a hospital immediately.")
+                
+            except Exception as e:
+                st.error(f"Error during analysis: {str(e)}")
 
 # --- Footer ---
-st.markdown("---")
-st.center = st.caption("Powered by Google Gemini AI")
+st.divider()
+st.caption("Powered by Grok (xAI) | Developed for VaidyaMitra")
