@@ -11,8 +11,9 @@ st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
     .stTextArea textarea { border-radius: 10px; border: 1px solid #007bff; }
-    .stButton>button { background-color: #007bff; color: white; border-radius: 8px; font-weight: bold; }
-    .report-box { background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); border-left: 5px solid #007bff; }
+    .stButton>button { background-color: #007bff; color: white; border-radius: 8px; font-weight: bold; width: 100%; }
+    .report-box { background-color: #ffffff; padding: 25px; border-radius: 12px; box-shadow: 0px 4px 12px rgba(0,0,0,0.1); border-left: 6px solid #007bff; line-height: 1.6; color: #333; }
+    .status-text { font-weight: 500; color: #555; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -22,35 +23,38 @@ class AgentState(TypedDict):
     analysis: str
     urgency: str
 
-# --- Agentic Logic (Fixed for Pydantic V2) ---
+# --- Agentic Logic (CrewAI) ---
 def run_medical_crew(symptoms):
+    # Researcher Agent
     researcher = Agent(
         role='Medical Researcher',
-        goal=f'Analyze symptoms: {symptoms}',
-        backstory='Expert in medical science and diagnostic patterns.',
+        goal=f'Analyze symptoms: {symptoms} and find potential causes.',
+        backstory='Expert in clinical diagnostic patterns and medical literature.',
         allow_delegation=False,
         verbose=True
     )
     
+    # Triage Specialist Agent
     analyst = Agent(
         role='Triage Specialist',
-        goal='Assess severity and provide medical guidance.',
-        backstory='Specialized in emergency room triage and patient priority.',
+        goal='Assess severity and provide medical urgency classification.',
+        backstory='Senior ER specialist focused on patient prioritization and safety.',
         allow_delegation=False,
         verbose=True
     )
 
-    # 'expected_output' ఇక్కడ తప్పనిసరి (Fix for ValidationError)
+    # Task 1: Research (Expected Output is mandatory for Pydantic V2)
     task1 = Task(
-        description=f"Analyze these symptoms: {symptoms}. Identify 3 potential causes.",
+        description=f"Thoroughly analyze these symptoms: {symptoms}. List 3 most likely conditions.",
         agent=researcher,
-        expected_output="A structured list of 3 potential medical conditions with brief explanations."
+        expected_output="A structured summary of 3 potential conditions with brief reasoning for each."
     )
     
+    # Task 2: Triage
     task2 = Task(
-        description="Review researcher's findings and classify as CRITICAL, MEDIUM, or LOW urgency.",
+        description="Review the research and classify the situation as CRITICAL, MEDIUM, or LOW urgency.",
         agent=analyst,
-        expected_output="A final report with a clear Urgency Level and actionable advice for the patient."
+        expected_output="A final triage report including Urgency Level, brief explanation, and recommended next steps."
     )
 
     crew = Crew(agents=[researcher, analyst], tasks=[task1, task2])
@@ -60,56 +64,97 @@ def run_medical_crew(symptoms):
 def medical_node(state: AgentState):
     result = run_medical_crew(state['symptoms'])
     res_str = str(result)
-    # Urgency Check
+    
+    # Urgency detection logic
     urg_check = res_str.upper()
-    if any(word in urg_check for word in ["CRITICAL", "EMERGENCY", "IMMEDIATE"]):
+    if any(word in urg_check for word in ["CRITICAL", "EMERGENCY", "IMMEDIATE", "SEVERE"]):
         urgency = "Critical"
     else:
         urgency = "Normal"
+        
     return {"analysis": res_str, "urgency": urgency}
 
-# --- Workflow Graph ---
+# --- Workflow Graph Setup ---
 workflow = StateGraph(AgentState)
 workflow.add_node("analyze", medical_node)
 workflow.set_entry_point("analyze")
 workflow.add_edge("analyze", END)
 app_graph = workflow.compile()
 
-# --- Sidebar ---
+# --- Sidebar: API Configuration ---
 with st.sidebar:
-    st.header("🏥 System Configuration")
-    api_key = st.text_input("OpenAI API Key", type="password", help="Enter your sk-... key here")
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+    st.image("https://cdn-icons-png.flaticon.com/512/387/387561.png", width=80)
+    st.header("⚙️ Configuration")
+    
+    # API Key Logic: Secrets vs Manual Input
+    api_key_found = False
+    
+    if "OPENAI_API_KEY" in st.secrets:
+        os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+        st.success("API Key loaded from Secrets! ✅")
+        api_key_found = True
+    else:
+        user_key = st.text_input("Enter OpenAI API Key", type="password", help="sk-...")
+        if user_key:
+            os.environ["OPENAI_API_KEY"] = user_key
+            api_key_found = True
+        else:
+            st.warning("⚠️ API Key missing! Please add to Secrets or enter here.")
     
     st.divider()
-    st.info("ఈ సిస్టమ్ CrewAI ఏజెంట్లు మరియు LangGraph వర్క్‌ఫ్లోను ఉపయోగిస్తుంది.")
+    st.markdown("""
+    **Technical Stack:**
+    - CrewAI (Multi-Agents)
+    - LangGraph (Workflow)
+    - OpenAI GPT Models
+    """)
 
-# --- Main Page ---
-st.title("🩺 MediNode AI: Agentic Triage")
-st.write("రోగి యొక్క లక్షణాలను కింద వివరించండి. మా AI ఏజెంట్లు వాటిని విశ్లేషిస్తాయి.")
+# --- Main Page UI ---
+st.title("🩺 MediNode AI: Agentic Medical Triage")
+st.write("మా AI ఏజెంట్ల బృందం మీ లక్షణాలను విశ్లేషించి, పరిస్థితి యొక్క తీవ్రతను తెలియజేస్తుంది.")
 
-user_input = st.text_area("Symptoms:", placeholder="ఉదా: నిన్నటి నుండి కడుపులో నొప్పి మరియు వాంతులు...", height=120)
+# Layout Columns
+col1, col2 = st.columns([1, 1], gap="large")
 
-if st.button("Start Analysis"):
-    if not api_key:
-        st.error("దయచేసి సైడ్‌బార్‌లో OpenAI API Key ని ఎంటర్ చేయండి!")
-    elif not user_input:
-        st.warning("లక్షణాలను నమోదు చేయండి.")
-    else:
-        with st.status("AI Agents are collaborating...", expanded=True) as status:
-            st.write("🔍 Researcher is checking medical databases...")
-            final_result = app_graph.invoke({"symptoms": user_input})
-            status.update(label="Analysis Completed!", state="complete")
-        
-        # Displaying Results
-        st.subheader("📋 Diagnostic Report")
-        st.markdown(f"<div class='report-box'>{final_result['analysis']}</div>", unsafe_allow_html=True)
-        
-        st.write("---")
-        if final_result['urgency'] == "Critical":
-            st.error("🚨 **Urgency: CRITICAL** - వెంటనే డాక్టరును సంప్రదించండి!")
+with col1:
+    st.subheader("Patient Symptoms")
+    user_input = st.text_area(
+        "మీ ఆరోగ్య సమస్యలను ఇక్కడ వివరించండి:", 
+        placeholder="ఉదా: విపరీతమైన ఛాతి నొప్పి మరియు శ్వాస తీసుకోవడంలో ఇబ్బంది...", 
+        height=150
+    )
+    
+    run_btn = st.button("Start AI Diagnostic Analysis")
+
+with col2:
+    st.subheader("Analysis Results")
+    
+    if run_btn:
+        if not api_key_found:
+            st.error("API Key దొరకలేదు. దయచేసి సెట్టింగ్స్ తనిఖీ చేయండి.")
+        elif not user_input:
+            st.warning("ముందుగా మీ లక్షణాలను టైప్ చేయండి.")
         else:
-            st.success("✅ **Urgency: NORMAL** - సాధారణ జాగ్రత్తలు తీసుకోండి.")
+            with st.status("AI Agents are collaborating...", expanded=True) as status:
+                st.write("🔍 **Medical Researcher** is scanning clinical patterns...")
+                
+                # Execute the Graph
+                try:
+                    final_result = app_graph.invoke({"symptoms": user_input})
+                    status.update(label="Analysis Finished!", state="complete", expanded=False)
+                    
+                    # Report Display
+                    st.markdown(f"<div class='report-box'>{final_result['analysis']}</div>", unsafe_allow_html=True)
+                    
+                    st.write("---")
+                    if final_result['urgency'] == "Critical":
+                        st.error("🚨 **URGENCY: CRITICAL** - వెంటనే వైద్య సహాయం తీసుకోండి (Consult a doctor immediately)!")
+                    else:
+                        st.success("✅ **URGENCY: NORMAL / STABLE** - సాధారణ వైద్య సలహాలు పాటించండి.")
+                
+                except Exception as e:
+                    st.error(f"Error encountered: {e}")
+                    status.update(label="Analysis Failed", state="error")
 
-st.caption("Disclaimer: ఇది కేవలం AI ప్రోటోటైప్ మాత్రమే. వైద్య సలహా కోసం డాక్టరును సంప్రదించండి.")
+st.divider()
+st.caption("⚠️ **Disclaimer:** This system is an AI research prototype and is NOT a substitute for professional medical diagnosis or emergency services.")
