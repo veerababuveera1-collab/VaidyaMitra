@@ -1,0 +1,6 @@
+streamlit
+crewai
+langgraph
+langchain-openai
+pydantic
+typing-extensions
